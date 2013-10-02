@@ -1,0 +1,284 @@
+<html>
+
+  <head>
+    <style>
+
+  
+      body{
+
+        margin:0px;
+        background:black;
+
+      }
+
+      #container{
+        
+        position:absolute;
+        top:0px;
+        left:0px;
+
+      }
+
+    </style>
+  </head>
+
+<body>
+
+  <div id = "container" ></div>
+
+  <script src = "three.min.js" ></script>
+  <script src = "OrbitControls.js" ></script>
+  <script src = "audio.js" ></script>
+  <script>
+
+
+
+    /*
+        GLOBAL VARS
+    */
+
+    var scene , clock, camera, controls , renderer;
+
+    var pulseGeo , pulseData;
+
+    var particleGeo , particleData;
+
+    var freqByteData;
+
+    var container;
+
+    var theta = 0;
+
+    // Scene Size 
+    var SS = 100;
+
+
+    initAudio();
+    masterGain.gain.value = 1; 
+
+    function init(){
+
+      scene = new THREE.Scene();
+
+      clock = new THREE.Clock();
+
+      var FOV         = 45;
+      var aspectRatio = window.innerWidth / window.innerHeight;
+      var near        = SS / 10; // Large as possible
+      var far         = SS * 10 ; // Small as possible
+
+      // you will see what is between these two numbers
+
+      camera = new THREE.PerspectiveCamera( FOV , aspectRatio , near, far );
+
+      camera.position.z = SS;
+
+      controls = new THREE.OrbitControls( camera );
+
+  
+      initSceneObjects();
+      initParticles();
+
+      renderer = new THREE.WebGLRenderer();
+
+      // These should be the same numbers that are in the aspect ratio
+      renderer.setSize( window.innerWidth , window.innerHeight );
+
+
+      // Adding that shit to the dom
+      container = document.getElementById( 'container' );
+      
+      container.appendChild( renderer.domElement );
+
+
+    }
+
+
+    function animate(){
+
+
+      theta += clock.getDelta();
+
+      updateAudio();
+      updatePulseGeo();
+      updateParticles();
+
+      controls.update();
+
+      renderer.render( scene , camera );
+
+      requestAnimationFrame( animate );
+
+    }
+
+    function initSceneObjects(){
+
+
+      var light = new THREE.DirectionalLight( 0xaa4444 , 1 );
+      light.position.set( 0 , 1 , 0 );
+
+      scene.add( light );
+
+      var light = new THREE.DirectionalLight( 0x44aaaa , 1 );
+      light.position.set( 0 , -1 , 0 );
+
+      scene.add( light );
+
+
+      var material = new THREE.MeshPhongMaterial({
+
+   
+        color:        0xc0ffee,
+        emissive:     0x004477,
+        specular:     0x440077,
+        diffuse:      0x440077,
+        shininess:     100000,
+        ambient:      0x110000,
+        shading:      THREE.FlatShading,
+        side:         THREE.DoubleSide,
+        opacity:      1,
+        transparent:  true
+          
+      });
+
+      // We create a geometry, and then we copy, 
+      // So that we have an unaltered version to compare
+      pulseGeo  = new THREE.IcosahedronGeometry( SS / 10 , 2 );
+      pulseData = pulseGeo.clone();
+
+
+      for( var i = 0 ;  i < 20 ; i++ ){
+
+        var mesh = new THREE.Mesh( pulseGeo , material );
+
+        mesh.position.z = - SS / 6;
+        mesh.rotation.z = (i / 20) * Math.PI * 2;
+
+        scene.add( mesh );
+
+      }
+
+    }
+
+    function initParticles(){
+
+
+      // Creating a geometry from scratch
+
+      // Right now particleGeo.vertices is empty
+      particleGeo = new THREE.Geometry();
+
+      for( var i = 0; i < masterAnalyser.frequencyBinCount; i ++ ){
+
+        // Will range from  -SS --> SS
+        var x = ( ( i / masterAnalyser.frequencyBinCount ) ) * SS;
+
+        var vert = new THREE.Vector3( x , 0 , 0 );
+
+        // Get that in our geometry
+        particleGeo.vertices.push( vert );
+
+      }
+
+      // Now that its made, lets clone it
+      particleData = particleGeo.clone();
+
+      var material = new THREE.ParticleBasicMaterial({ 
+        color:        0xc0ffee,
+        opacity:      .9,
+        size:         5, 
+        transparent:  true
+      });
+
+      for( var i = 0; i < 30 ; i ++ ){ 
+        
+      // Now that we've got geo and mat, lets make the system
+      var particleSystem = new THREE.ParticleSystem( particleGeo , material );
+
+      particleSystem.rotation.z = i / 30  * Math.PI * 2 ;
+      scene.add( particleSystem );
+
+      }
+
+
+    }
+
+    function updateAudio(){
+
+      freqByteData = new Uint8Array( masterAnalyser.frequencyBinCount );
+      masterAnalyser.getByteFrequencyData( freqByteData );
+
+    }
+
+    function updatePulseGeo(){
+
+      for( var i = 0; i < pulseGeo.vertices.length ; i++ ){
+
+        if( freqByteData[i] ){
+
+          //  fbd ranges between 0 and 256
+          var fbd = freqByteData[i];
+
+          pulseGeo.vertices[i].x = pulseData.vertices[i].x * ( .5 + fbd/100 );
+          pulseGeo.vertices[i].y = pulseData.vertices[i].y * ( .5 + fbd/100 );
+          pulseGeo.vertices[i].z = pulseData.vertices[i].z * ( .5 + fbd/100 );
+
+        }
+
+      }
+
+      pulseGeo.verticesNeedUpdate = true;
+
+    }
+
+    function updateParticles(){
+
+      var l = particleData.vertices.length;
+
+      for( var i = l-1 ; i >= 0; i-- ){
+
+        if( i < l-1 ){
+
+          particleData.vertices[i].z -= (particleData.vertices[i].z - particleData.vertices[i+1].z)/2  ;//sin( time );
+
+        }else{
+
+          particleData.vertices[i].z = Math.sin( theta / 10 ) * 100; 
+
+        }
+
+
+      }
+
+      particleGeo.verticesNeedUpdate = true;
+
+      for( var i = 0 ; i < particleGeo.vertices.length; i++ ){
+
+        //if( freqByteData[i] ){
+          var fbd = freqByteData[i];
+          particleGeo.vertices[i].y = particleData.vertices[i].y + ( fbd / 256 )* 5;
+          particleGeo.vertices[i].z = particleData.vertices[i].z + ( fbd / 256 )* 5;
+
+       // }
+
+      }
+
+      particleGeo.verticesNeedUpdate = true;
+
+    }
+
+ 
+    function BEGIN(){
+
+      init();
+      animate();
+
+      note.play();
+
+    }
+
+
+  </script>
+
+</body>
+</html>
